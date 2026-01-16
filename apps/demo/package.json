@@ -1,0 +1,19 @@
+{
+    "name": "entgldb-demo",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "demo": "tsx demo.ts",
+        "interactive": "tsx interactive.ts"
+    },
+    "dependencies": {
+        "@entgldb/core": "workspace:*",
+        "@entgldb/persistence-sqlite": "workspace:*",
+        "@entgldb/network": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "^4.7.0",
+        "typescript": "^5.3.3"
+    }
+}

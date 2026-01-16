@@ -1,0 +1,22 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "node",
+        "esModuleInterop": true
+    },
+    "include": [
+        "*.ts"
+    ],
+    "references": [
+        {
+            "path": "../../packages/core"
+        },
+        {
+            "path": "../../packages/persistence-sqlite"
+        },
+        {
+            "path": "../../packages/network"
+        }
+    ]
+}

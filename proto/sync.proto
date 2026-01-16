@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package entgldb.v1;
+
+option java_package = "com.entgldb.protocol";
+option java_outer_classname = "SyncProto";
+
+// Hybrid Logical Clock timestamp
+message HLCTimestamp {
+  int64 logical_time = 1;
+  int32 counter = 2;
+  string node_id = 3;
+}
+
+// Handshake request
+message HandshakeRequest {
+  string node_id = 1;
+  string protocol_version = 2;  // e.g., "1.0"
+  string auth_token = 3;
+  repeated string supported_features = 4;
+}
+
+message HandshakeResponse {
+  bool accepted = 1;
+  string server_node_id = 2;
+  string protocol_version = 3;
+  repeated string enabled_features = 4;
+  string error_message = 5;
+}
+
+// Document structure
+message Document {
+  string collection = 1;
+  string key = 2;
+  bytes data = 3;  // JSON payload
+  HLCTimestamp timestamp = 4;
+  bool tombstone = 5;
+}
+
+// Oplog entry
+message OplogEntry {
+  string collection = 1;
+  string key = 2;
+  bytes data = 3;
+  HLCTimestamp timestamp = 4;
+  string operation = 5;  // "put" | "delete"
+}
+
+// Sync request (Pull changes)
+message SyncRequest {
+  HLCTimestamp since = 1;  // Get changes after this timestamp
+  repeated string collections = 2;  // Empty = all collections
+  int32 batch_size = 3;  // Default: 100
+}
+
+message SyncResponse {
+  repeated OplogEntry entries = 1;
+  HLCTimestamp latest_timestamp = 2;
+  bool has_more = 3;
+}
+
+// Push changes
+message PushRequest {
+  repeated OplogEntry entries = 1;
+}
+
+message PushResponse {
+  bool accepted = 1;
+  int32 applied_count = 2;
+  repeated string conflicts = 3;  // Keys with conflicts
+}
+
+// Clock comparison
+message GetClockRequest {}
+
+message GetClockResponse {
+  HLCTimestamp timestamp = 1;
+}
+
+// Get collections list
+message GetCollectionsRequest {}
+
+message GetCollectionsResponse {
+  repeated string collections = 1;
+}

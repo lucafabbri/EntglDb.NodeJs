@@ -1,0 +1,32 @@
+{
+    "name": "@entgldb/protocol",
+    "version": "0.1.0",
+    "description": "Protocol Buffers definitions for EntglDb",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist",
+        "proto"
+    ],
+    "scripts": {
+        "generate": "powershell -File scripts/generate.ps1",
+        "build": "pnpm generate && tsc",
+        "clean": "rm -rf dist src/generated",
+        "test": "echo 'No tests for protocol package'"
+    },
+    "dependencies": {
+        "protobufjs": "^7.2.5"
+    },
+    "devDependencies": {
+        "@protobuf-ts/plugin": "^2.9.3",
+        "@protobuf-ts/protoc": "^2.9.3",
+        "@protobuf-ts/runtime": "^2.9.3",
+        "typescript": "^5.3.3"
+    },
+    "keywords": [
+        "entgldb",
+        "protocol",
+        "protobuf"
+    ],
+    "license": "MIT"
+}
