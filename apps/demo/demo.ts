@@ -28,7 +28,12 @@ async function main() {
     await db1.initialize();
 
     // Start sync server on Node 1
-    const server1 = new TcpSyncServer(store1, 'node-1', 3001, 'secret123');
+    const server1 = new TcpSyncServer({
+        store: store1,
+        nodeId: 'node-1',
+        port: 3001,
+        authToken: 'secret123'
+    });
     server1.start();
 
     // Start UDP Discovery on Node 1
@@ -56,7 +61,12 @@ async function main() {
     await db2.initialize();
 
     // Start sync server on Node 2
-    const server2 = new TcpSyncServer(store2, 'node-2', 3002, 'secret123');
+    const server2 = new TcpSyncServer({
+        store: store2,
+        nodeId: 'node-2',
+        port: 3002,
+        authToken: 'secret123'
+    });
     server2.start();
 
     // Start UDP Discovery on Node 2

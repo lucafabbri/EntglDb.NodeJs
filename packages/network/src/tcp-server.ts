@@ -10,21 +10,27 @@ import {
     HLCTimestamp,
     PROTOCOL_VERSION
 } from '@entgldb/protocol';
+import { IPeerHandshakeService, IAuthenticator, CipherState, CryptoHelper } from './security';
 
 /**
  * TCP-based sync server
  */
+export interface TcpSyncServerOptions {
+    store: IPeerStore;
+    nodeId: string;
+    port: number;
+    authToken?: string;
+    handshakeService?: IPeerHandshakeService;
+    authenticator?: IAuthenticator;
+}
+
 export class TcpSyncServer {
     private server: net.Server | null = null;
     private clock: HLClock;
+    private connectionCiphers = new WeakMap<net.Socket, CipherState>();
 
-    constructor(
-        private readonly store: IPeerStore,
-        private readonly nodeId: string,
-        private readonly port: number,
-        private readonly authToken: string = ''
-    ) {
-        this.clock = new HLClock(nodeId);
+    constructor(private readonly options: TcpSyncServerOptions) {
+        this.clock = new HLClock(options.nodeId);
     }
 
     /**
@@ -35,8 +41,8 @@ export class TcpSyncServer {
             this.handleConnection(socket);
         });
 
-        this.server.listen(this.port, () => {
-            console.log(`[EntglDb] Sync server listening on port ${this.port}`);
+        this.server.listen(this.options.port, () => {
+            console.log(`[EntglDb] Sync server listening on port ${this.options.port}`);
         });
     }
 
@@ -53,6 +59,24 @@ export class TcpSyncServer {
     private async handleConnection(socket: net.Socket): Promise<void> {
         console.log(`[EntglDb] New connection from ${socket.remoteAddress}`);
 
+        // Perform secure handshake if service provided
+        if (this.options.handshakeService) {
+            try {
+                const cipherState = await this.options.handshakeService.handshake(
+                    socket,
+                    false, // isInitiator (server is responder)
+                    this.options.nodeId
+                );
+                if (cipherState) {
+                    this.connectionCiphers.set(socket, cipherState);
+                }
+            } catch (error) {
+                console.error('[EntglDb] Security handshake failed:', error);
+                socket.end();
+                return;
+            }
+        }
+
         let buffer = Buffer.alloc(0);
 
         socket.on('data', async (data) => {
@@ -67,8 +91,20 @@ export class TcpSyncServer {
                     break;
                 }
 
-                const messageData = buffer.subarray(4, 4 + messageLength);
+                let messageData = buffer.subarray(4, 4 + messageLength);
                 buffer = buffer.subarray(4 + messageLength);
+
+                // Decrypt if cipher state exists for this connection
+                const cipherState = this.connectionCiphers.get(socket);
+                if (cipherState) {
+                    const ivLen = messageData[0];
+                    const iv = messageData.subarray(1, 1 + ivLen);
+                    const tagLen = messageData[1 + ivLen];
+                    const tag = messageData.subarray(2 + ivLen, 2 + ivLen + tagLen);
+                    const ciphertext = messageData.subarray(2 + ivLen + tagLen);
+
+                    messageData = CryptoHelper.decrypt(ciphertext, iv, tag, cipherState.decryptKey);
+                }
 
                 try {
                     await this.handleMessage(socket, messageData);
@@ -111,11 +147,26 @@ export class TcpSyncServer {
     private async handleHandshake(socket: net.Socket, payload: Buffer): Promise<void> {
         const request = HandshakeRequest.fromBinary(payload);
 
-        // Validate auth token
-        if (this.authToken && request.authToken !== this.authToken) {
+        // Validate auth token using authenticator or simple token check
+        if (this.options.authenticator) {
+            const valid = await this.options.authenticator.validate(request.nodeId, request.authToken);
+            if (!valid) {
+                const response = HandshakeResponse.create({
+                    accepted: false,
+                    serverNodeId: this.options.nodeId,
+                    protocolVersion: PROTOCOL_VERSION,
+                    enabledFeatures: [],
+                    errorMessage: 'Authentication failed'
+                });
+
+                this.sendMessage(socket, 1, HandshakeResponse.toBinary(response));
+                socket.end();
+                return;
+            }
+        } else if (this.options.authToken && request.authToken !== this.options.authToken) {
             const response = HandshakeResponse.create({
                 accepted: false,
-                serverNodeId: this.nodeId,
+                serverNodeId: this.options.nodeId,
                 protocolVersion: PROTOCOL_VERSION,
                 enabledFeatures: [],
                 errorMessage: 'Invalid auth token'
@@ -130,7 +181,7 @@ export class TcpSyncServer {
         if (request.protocolVersion !== PROTOCOL_VERSION) {
             const response = HandshakeResponse.create({
                 accepted: false,
-                serverNodeId: this.nodeId,
+                serverNodeId: this.options.nodeId,
                 protocolVersion: PROTOCOL_VERSION,
                 enabledFeatures: [],
                 errorMessage: `Protocol version mismatch. Expected ${PROTOCOL_VERSION}, got ${request.protocolVersion}`
@@ -143,7 +194,7 @@ export class TcpSyncServer {
 
         const response = HandshakeResponse.create({
             accepted: true,
-            serverNodeId: this.nodeId,
+            serverNodeId: this.options.nodeId,
             protocolVersion: PROTOCOL_VERSION,
             enabledFeatures: request.supportedFeatures,
             errorMessage: ''
@@ -156,8 +207,8 @@ export class TcpSyncServer {
         const request = SyncRequest.fromBinary(payload);
         const batchSize = request.batchSize || 100;
 
-        const entries = await this.store.getOplogAfter(request.since!, batchSize);
-        const latest = await this.store.getLatestTimestamp();
+        const entries = await this.options.store.getOplogAfter(request.since!, batchSize);
+        const latest = await this.options.store.getLatestTimestamp();
 
         const response = SyncResponse.create({
             entries,
@@ -187,7 +238,7 @@ export class TcpSyncServer {
             tombstone: entry.operation === 'delete'
         }));
 
-        await this.store.applyBatch(docs, request.entries);
+        await this.options.store.applyBatch(docs, request.entries);
 
         const response = PushResponse.create({
             accepted: true,
@@ -199,11 +250,26 @@ export class TcpSyncServer {
     }
 
     private sendMessage(socket: net.Socket, messageType: number, payload: Uint8Array): void {
-        const length = Buffer.allocUnsafe(4);
-        length.writeUInt32BE(1 + payload.length);
-
         const typeBuffer = Buffer.from([messageType]);
-        const message = Buffer.concat([length, typeBuffer, Buffer.from(payload)]);
+        let messagePayload = Buffer.concat([typeBuffer, Buffer.from(payload)]);
+
+        // Encrypt if cipher state exists for this connection
+        const cipherState = this.connectionCiphers.get(socket);
+        if (cipherState) {
+            const { ciphertext, iv, tag } = CryptoHelper.encrypt(messagePayload, cipherState.encryptKey);
+            // Wire format: [iv_len(1)][iv][tag_len(1)][tag][ciphertext]
+            messagePayload = Buffer.concat([
+                Buffer.from([iv.length]),
+                iv,
+                Buffer.from([tag.length]),
+                tag,
+                ciphertext
+            ]);
+        }
+
+        const length = Buffer.allocUnsafe(4);
+        length.writeUInt32BE(messagePayload.length);
+        const message = Buffer.concat([length, messagePayload]);
 
         socket.write(message);
     }

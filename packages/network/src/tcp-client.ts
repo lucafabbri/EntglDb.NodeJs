@@ -8,12 +8,14 @@ import {
     HLCTimestamp,
     PROTOCOL_VERSION
 } from '@entgldb/protocol';
+import { IPeerHandshakeService, CipherState, CryptoHelper } from './security';
 
 export interface SyncClientOptions {
     nodeId: string;
     host: string;
     port: number;
     authToken?: string;
+    handshakeService?: IPeerHandshakeService; // Optional security
 }
 
 /**
@@ -24,6 +26,7 @@ export class TcpSyncClient {
     private clock: HLClock;
     private responseHandlers = new Map<number, (data: Buffer) => void>();
     private messageId = 0;
+    private cipherState?: CipherState; // Security state
 
     constructor(private readonly options: SyncClientOptions) {
         this.clock = new HLClock(options.nodeId);
@@ -41,6 +44,19 @@ export class TcpSyncClient {
 
             this.socket.on('connect', async () => {
                 try {
+                    // Perform secure handshake if service provided
+                    if (this.options.handshakeService) {
+                        const cipherState = await this.options.handshakeService.handshake(
+                            this.socket!,
+                            true, // isInitiator
+                            this.options.nodeId
+                        );
+                        if (cipherState) {
+                            this.cipherState = cipherState;
+                        }
+                    }
+
+                    // Perform application handshake
                     await this.handshake();
                     resolve();
                 } catch (error) {
@@ -126,11 +142,25 @@ export class TcpSyncClient {
                 }
             });
 
-            const length = Buffer.allocUnsafe(4);
-            length.writeUInt32BE(1 + payload.length);
-
             const typeBuffer = Buffer.from([messageType]);
-            const message = Buffer.concat([length, typeBuffer, Buffer.from(payload)]);
+            let messagePayload = Buffer.concat([typeBuffer, Buffer.from(payload)]);
+
+            // Encrypt if cipher state is available
+            if (this.cipherState) {
+                const { ciphertext, iv, tag } = CryptoHelper.encrypt(messagePayload, this.cipherState.encryptKey);
+                // Wire format: [iv_len(1)][iv][tag_len(1)][tag][ciphertext]
+                messagePayload = Buffer.concat([
+                    Buffer.from([iv.length]),
+                    iv,
+                    Buffer.from([tag.length]),
+                    tag,
+                    ciphertext
+                ]);
+            }
+
+            const length = Buffer.allocUnsafe(4);
+            length.writeUInt32BE(messagePayload.length);
+            const message = Buffer.concat([length, messagePayload]);
 
             this.socket!.write(message);
 
@@ -156,8 +186,19 @@ export class TcpSyncClient {
                 break;
             }
 
-            const messageData = this.buffer.subarray(4, 4 + messageLength);
+            let messageData = this.buffer.subarray(4, 4 + messageLength);
             this.buffer = this.buffer.subarray(4 + messageLength);
+
+            // Decrypt if cipher state is available
+            if (this.cipherState) {
+                const ivLen = messageData[0];
+                const iv = messageData.subarray(1, 1 + ivLen);
+                const tagLen = messageData[1 + ivLen];
+                const tag = messageData.subarray(2 + ivLen, 2 + ivLen + tagLen);
+                const ciphertext = messageData.subarray(2 + ivLen + tagLen);
+
+                messageData = CryptoHelper.decrypt(ciphertext, iv, tag, this.cipherState.decryptKey);
+            }
 
             const messageType = messageData[0];
             const payload = messageData.subarray(1);
