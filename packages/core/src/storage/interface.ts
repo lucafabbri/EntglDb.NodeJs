@@ -1,4 +1,5 @@
 import { HLCTimestamp, Document, OplogEntry } from '@entgldb/protocol';
+export type { OplogEntry };
 
 /**
  * Storage interface that must be implemented by persistence adapters

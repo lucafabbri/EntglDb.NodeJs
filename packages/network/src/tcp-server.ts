@@ -103,7 +103,8 @@ export class TcpSyncServer {
                     const tag = messageData.subarray(2 + ivLen, 2 + ivLen + tagLen);
                     const ciphertext = messageData.subarray(2 + ivLen + tagLen);
 
-                    messageData = CryptoHelper.decrypt(ciphertext, iv, tag, cipherState.decryptKey);
+                    const decrypted = CryptoHelper.decrypt(ciphertext, iv, tag, cipherState.decryptKey);
+                    messageData = Buffer.from(decrypted);
                 }
 
                 try {
