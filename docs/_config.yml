@@ -1,0 +1,5 @@
+title: "EntglDb Node.js Documentation"
+description: A decentralized, offline-first peer-to-peer database for Node.js, Electron, and React Native.
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-seo-tag

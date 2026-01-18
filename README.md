@@ -91,7 +91,8 @@ See [walkthrough.md](file:///C:/Users/FABLUA/.gemini/antigravity/brain/95865bf1-
 - ✅ **Hybrid Logical Clocks (HLC)** for distributed ordering
 - ✅ **Last-Write-Wins (LWW)** conflict resolution
 - ✅ **SQLite** persistence with WAL mode
-- ✅ **P2P Sync** via TCP with Protocol Buffers
+- ✅ **P2P Sync** via TCP with Protocol Buffers (v4)
+- ✅ **Brotli Compression** for efficient bandwidth usage
 - ✅ **Multi-platform**: Node.js, Electron, React Native
 - ✅ **Type-safe** TypeScript API
 
@@ -112,7 +113,8 @@ EntglDb.NodeJs/
 
 ## 🔗 Protocol Compatibility
 
-Compatible with EntglDb.NET v0.4.0 - Can sync with .NET nodes!
+Compatible with EntglDb.NET v0.7.0, EntglDb.Kotlin v0.7.0
+Features: Brotli compression, Secure Handshake.
 
 ## 📄 License
 

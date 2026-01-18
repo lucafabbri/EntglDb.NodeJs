@@ -1,7 +1,15 @@
 {
     "name": "@entgldb/core",
-    "version": "0.1.0",
+    "version": "0.7.0",
     "description": "EntglDb core database engine",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/EntglDb/EntglDb.NodeJs.git"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "author": "EntglDb Team",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "files": [

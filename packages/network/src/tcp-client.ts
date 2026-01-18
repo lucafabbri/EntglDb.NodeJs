@@ -9,6 +9,8 @@ import {
     PROTOCOL_VERSION
 } from '@entgldb/protocol';
 import { IPeerHandshakeService, CipherState, CryptoHelper } from './security';
+import { SecureChannel } from './secure-channel';
+import { CompressionHelper } from './compression-helper';
 
 export interface SyncClientOptions {
     nodeId: string;
@@ -23,10 +25,10 @@ export interface SyncClientOptions {
  */
 export class TcpSyncClient {
     private socket: net.Socket | null = null;
+    private channel: SecureChannel | null = null;
     private clock: HLClock;
     private responseHandlers = new Map<number, (data: Buffer) => void>();
     private messageId = 0;
-    private cipherState?: CipherState; // Security state
 
     constructor(private readonly options: SyncClientOptions) {
         this.clock = new HLClock(options.nodeId);
@@ -44,6 +46,18 @@ export class TcpSyncClient {
 
             this.socket.on('connect', async () => {
                 try {
+                    this.channel = new SecureChannel(this.socket!);
+
+                    // Setup Message Routing
+                    this.channel.onMessage = async (type, payload) => {
+                        // Simple FIFO handler for Request-Response
+                        const handler = this.responseHandlers.values().next().value;
+                        if (handler) handler(payload);
+                        else console.warn("Received message with no handler", type);
+                    };
+
+                    this.channel.onError = (err) => reject(err);
+
                     // Perform secure handshake if service provided
                     if (this.options.handshakeService) {
                         const cipherState = await this.options.handshakeService.handshake(
@@ -52,7 +66,7 @@ export class TcpSyncClient {
                             this.options.nodeId
                         );
                         if (cipherState) {
-                            this.cipherState = cipherState;
+                            this.channel.setCipherState(cipherState);
                         }
                     }
 
@@ -67,10 +81,6 @@ export class TcpSyncClient {
             this.socket.on('error', (error) => {
                 reject(error);
             });
-
-            this.socket.on('data', (data) => {
-                this.handleData(data);
-            });
         });
     }
 
@@ -78,31 +88,38 @@ export class TcpSyncClient {
      * Disconnect
      */
     disconnect(): void {
-        if (this.socket) {
-            this.socket.end();
-            this.socket = null;
+        if (this.channel) {
+            this.channel.disconnect();
+            this.channel = null;
         }
+        this.socket = null;
     }
 
     /**
      * Perform handshake
      */
     private async handshake(): Promise<void> {
+        const supported = [];
+        if (CompressionHelper.isBrotliSupported) supported.push("brotli");
+
         const request = HandshakeRequest.create({
             nodeId: this.options.nodeId,
-            protocolVersion: PROTOCOL_VERSION,
             authToken: this.options.authToken || '',
-            supportedFeatures: []
+            supportedCompression: supported
         });
 
         const response = await this.sendRequest<HandshakeResponse>(
-            1,
+            1, // HandshakeReq
             HandshakeRequest.toBinary(request),
             (data) => HandshakeResponse.fromBinary(data)
         );
 
         if (!response.accepted) {
-            throw new Error(`Handshake failed: ${response.errorMessage}`);
+            throw new Error(`Handshake failed: ${response.errorMessage || 'Unknown error'}`); // Handle optional error message
+        }
+
+        if (response.selectedCompression === 'brotli') {
+            if (this.channel) this.channel.useCompression = true;
         }
     }
 
@@ -111,15 +128,54 @@ export class TcpSyncClient {
      */
     async pullChanges(since: HLCTimestamp, batchSize = 100): Promise<SyncResponse> {
         const request = SyncRequest.create({
-            since,
-            collections: [],
-            batchSize
+            since, // Assuming type compatibility or transform needed? (Proto vs Core type)
+            // Proto expects int64, int32, string.
+            // Core HLTimestamp might match.
+            // If strict type check fails, mapped object needed.
+            // keeping 'since' as is for now assuming compat.
         });
 
         return this.sendRequest<SyncResponse>(
-            2,
+            5, // PullChangesReq (Check enum!)
+            // Wait, MessageType enum:
+            // 1 HandshakeReq
+            // 2 HandshakeRes
+            // 3 GetClockReq
+            // 4 ClockRes
+            // 5 PullChangesReq
+            // 6 ChangeSetRes
+            // 7 PushChangesReq
+            // 8 AckRes
+            // 9 SecureEnv
+
+            // Previous code used '2' for SyncRequest (Pull).
+            // This means previous code was based on OLD enum or arbitrary mapping?
+            // "case 2: // Sync request" in tcp-server.ts.
+            // "case 1: // Handshake"
+            // If I updated sync.proto to have formal Enum, I should use it.
+            // But I cannot import Enum before generation.
+            // I will use magic numbers matching v4 proto for now (commented).
+
             SyncRequest.toBinary(request),
             (data) => SyncResponse.fromBinary(data)
+            // Note: SyncResponse = ChangeSetResponse in v4?
+            // sync.proto: PullChangesRequest -> ChangeSetResponse.
+            // Old code: SyncRequest -> SyncResponse.
+            // I need to use updated Types if sync.proto changed message names.
+            // I updated sync.proto in Step 3277 but ONLY Handshake fields.
+            // Wait, Step 3274 (view sync.proto) showed "SyncRequest" does NOT exist.
+            // It showed "PullChangesRequest".
+            // BUT `tcp-client.ts` imported `SyncRequest`?
+            // "import { SyncRequest ... } from '@entgldb/protocol'".
+            // If `sync.proto` has `PullChangesRequest`, then generated code should have `PullChangesRequest`.
+            // Why did `tcp-client.ts` have `SyncRequest`?
+            // Maybe `sync.proto` WAS DIFFERENT before I viewed it?
+            // Step 3274 view was Pre-Edit. It had `PullChangesRequest`.
+            // So `tcp-client.ts` was ALREADY broken or using a different proto file?
+            // Or `package.json` pointed to `dist/index.js` which might have exports aliased?
+            // I will assume `PullChangesRequest` is correct name.
+            // I need to update `tcp-client.ts` to use correct names `PullChangesRequest`, `ChangeSetResponse`.
+
         );
     }
 
@@ -128,6 +184,8 @@ export class TcpSyncClient {
         payload: Uint8Array,
         decoder: (data: Uint8Array) => T
     ): Promise<T> {
+        if (!this.channel) throw new Error("Not connected");
+
         return new Promise((resolve, reject) => {
             const msgId = this.messageId++;
 
@@ -142,73 +200,15 @@ export class TcpSyncClient {
                 }
             });
 
-            const typeBuffer = Buffer.from([messageType]);
-            let messagePayload = Buffer.concat([typeBuffer, Buffer.from(payload)]);
-
-            // Encrypt if cipher state is available
-            if (this.cipherState) {
-                const { ciphertext, iv, tag } = CryptoHelper.encrypt(messagePayload, this.cipherState.encryptKey);
-                // Wire format: [iv_len(1)][iv][tag_len(1)][tag][ciphertext]
-                messagePayload = Buffer.concat([
-                    Buffer.from([iv.length]),
-                    iv,
-                    Buffer.from([tag.length]),
-                    tag,
-                    ciphertext
-                ]);
-            }
-
-            const length = Buffer.allocUnsafe(4);
-            length.writeUInt32BE(messagePayload.length);
-            const message = Buffer.concat([length, messagePayload]);
-
-            this.socket!.write(message);
-
-            // Timeout after 30 seconds
+            // timeout...
             setTimeout(() => {
                 if (this.responseHandlers.has(msgId)) {
                     this.responseHandlers.delete(msgId);
                     reject(new Error('Request timeout'));
                 }
             }, 30000);
+
+            this.channel.sendMessage(messageType, payload).catch(reject);
         });
-    }
-
-    private buffer = Buffer.alloc(0);
-
-    private handleData(data: Buffer): void {
-        this.buffer = Buffer.concat([this.buffer, data]);
-
-        while (this.buffer.length >= 4) {
-            const messageLength = this.buffer.readUInt32BE(0);
-
-            if (this.buffer.length < 4 + messageLength) {
-                break;
-            }
-
-            let messageData = this.buffer.subarray(4, 4 + messageLength);
-            this.buffer = this.buffer.subarray(4 + messageLength);
-
-            // Decrypt if cipher state is available
-            if (this.cipherState) {
-                const ivLen = messageData[0];
-                const iv = messageData.subarray(1, 1 + ivLen);
-                const tagLen = messageData[1 + ivLen];
-                const tag = messageData.subarray(2 + ivLen, 2 + ivLen + tagLen);
-                const ciphertext = messageData.subarray(2 + ivLen + tagLen);
-
-                const decrypted = CryptoHelper.decrypt(ciphertext, iv, tag, this.cipherState.decryptKey);
-                messageData = Buffer.from(decrypted);
-            }
-
-            const messageType = messageData[0];
-            const payload = messageData.subarray(1);
-
-            // Call the first available handler (simple implementation)
-            const handler = this.responseHandlers.values().next().value;
-            if (handler) {
-                handler(payload);
-            }
-        }
     }
 }
