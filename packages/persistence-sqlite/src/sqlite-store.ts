@@ -231,6 +231,36 @@ export class SqlitePeerStore implements IPeerStore {
         return rows.map(r => r.name);
     }
 
+    async findDocuments(collection: string, query: any): Promise<Document[]> {
+        const { SqlTranslator } = require('./sql-translator');
+        const { where, params } = SqlTranslator.translate(query);
+
+        const rows = this.db.prepare(`
+          SELECT key, data, logical_time, counter, node_id, tombstone
+          FROM documents
+          WHERE collection = ? AND tombstone = 0 AND ${where}
+        `).all(collection, ...params) as Array<{
+            key: string;
+            data: Buffer;
+            logical_time: string;
+            counter: number;
+            node_id: string;
+            tombstone: number;
+        }>;
+
+        return rows.map(row => Document.create({
+            collection,
+            key: row.key,
+            data: new Uint8Array(row.data),
+            timestamp: HLCTimestamp.create({
+                logicalTime: row.logical_time,
+                counter: row.counter,
+                nodeId: row.node_id
+            }),
+            tombstone: row.tombstone === 1
+        }));
+    }
+
     async close(): Promise<void> {
         this.db.close();
         this.initialized = false;

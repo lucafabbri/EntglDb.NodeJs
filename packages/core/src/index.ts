@@ -12,4 +12,10 @@ export { IPeerStore } from './storage/interface';
 export * from './sync';
 
 // Re-export protocol types for convenience
+// Re-export protocol types for convenience
 export type { HLCTimestamp, Document, OplogEntry } from '@entgldb/protocol';
+
+// Query exports
+export * from './query/query-node';
+export * from './query/translator';
+

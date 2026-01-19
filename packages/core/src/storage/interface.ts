@@ -46,6 +46,11 @@ export interface IPeerStore {
     getCollections(): Promise<string[]>;
 
     /**
+     * Find documents matching a query node
+     */
+    findDocuments(collection: string, query: any /* QueryNode */): Promise<Document[]>;
+
+    /**
      * Close the store
      */
     close(): Promise<void>;

@@ -5,7 +5,10 @@ export * from './generated/sync';
 export const PROTOCOL_VERSION = '1.0';
 
 // Type guards and utilities
-import { HLCTimestamp, Document, OplogEntry } from './generated/sync';
+// Type guards and utilities
+import { HLCTimestamp, Document, OplogEntry } from './domain';
+export { HLCTimestamp, Document, OplogEntry } from './domain';
+
 
 /**
  * Creates a new HLC timestamp
@@ -73,3 +76,6 @@ export function createOplogEntry(
         operation
     });
 }
+
+// Mapper
+export * from './mapper';

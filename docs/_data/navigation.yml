@@ -1,3 +1,5 @@
 v0.7.0:
   - title: Getting Started
     url: /v0.7.0/getting-started.html
+  - title: Querying
+    url: /v0.7.0/querying.html

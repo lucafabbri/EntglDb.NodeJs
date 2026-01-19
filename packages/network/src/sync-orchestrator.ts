@@ -117,13 +117,19 @@ export class SyncOrchestrator {
                 const response = await client.pullChanges(since, 100);
 
                 if (response.entries.length > 0) {
+                    // Convert to Domain objects
+                    const { ProtocolMapper } = require('@entgldb/protocol');
+                    const domainEntries = response.entries.map(e => ProtocolMapper.toDomainOplogEntry(e));
+
                     // Update clock
-                    for (const entry of response.entries) {
-                        this.clock.update(entry.timestamp!);
+                    for (const entry of domainEntries) {
+                        if (entry.timestamp) {
+                            this.clock.update(entry.timestamp);
+                        }
                     }
 
                     // Convert to documents and apply
-                    const docs = response.entries.map(entry => ({
+                    const docs = domainEntries.map(entry => ({
                         collection: entry.collection,
                         key: entry.key,
                         data: entry.data,
@@ -131,11 +137,11 @@ export class SyncOrchestrator {
                         tombstone: entry.operation === 'delete'
                     }));
 
-                    await this.options.store.applyBatch(docs, response.entries);
-                    pulledCount += response.entries.length;
+                    await this.options.store.applyBatch(docs, domainEntries);
+                    pulledCount += domainEntries.length;
                 }
 
-                hasMore = response.hasMore;
+                hasMore = response.entries.length >= 100;
             }
 
             if (pulledCount > 0) {

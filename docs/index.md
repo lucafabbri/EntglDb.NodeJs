@@ -8,7 +8,7 @@ Welcome to the documentation for **EntglDb Node.js**.
 
 ## Active Versions
 
-*   [**v0.7.0 (Latest)**](v0.7.0/getting-started.html) - Brotli Compression, Protocol v4.
+*   [**v0.7.0 (Latest)**](https://www.entgldb.com/docs/v0.7.0) - *Hosted on EntglDb.com*
 
 ## Links
 

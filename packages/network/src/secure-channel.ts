@@ -36,7 +36,7 @@ export class SecureChannel {
         if (this.useCompression && finalPayload.length > CompressionHelper.THRESHOLD) {
             const compressed = await CompressionHelper.compress(finalPayload);
             if (compressed.length < finalPayload.length) {
-                finalPayload = compressed;
+                finalPayload = compressed as any;
                 compressionFlag = 1;
             }
         }
@@ -125,9 +125,9 @@ export class SecureChannel {
                     const env = SecureEnvelope.fromBinary(payload);
 
                     const decrypted = CryptoHelper.decrypt(
-                        env.ciphertext,
-                        env.nonce,
-                        env.authTag || Buffer.alloc(0), // handle optional
+                        Buffer.from(env.ciphertext),
+                        Buffer.from(env.nonce),
+                        Buffer.from(env.authTag || []),
                         this.cipherState.decryptKey
                     );
 
@@ -139,14 +139,14 @@ export class SecureChannel {
                     let innerPayload = decrypted.subarray(2);
 
                     if (innerComp === 1) {
-                        innerPayload = await CompressionHelper.decompress(innerPayload);
+                        innerPayload = await CompressionHelper.decompress(innerPayload) as any;
                     }
 
                     if (this.onMessage) await this.onMessage(innerType, innerPayload);
                 } else {
                     // Unencrypted
                     if (compFlag === 1) {
-                        payload = await CompressionHelper.decompress(payload);
+                        payload = await CompressionHelper.decompress(payload) as any;
                     }
                     if (this.onMessage) await this.onMessage(messageType, payload);
                 }

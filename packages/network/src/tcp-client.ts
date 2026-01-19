@@ -3,8 +3,8 @@ import { HLClock } from '@entgldb/core';
 import {
     HandshakeRequest,
     HandshakeResponse,
-    SyncRequest,
-    SyncResponse,
+    PullChangesRequest,
+    ChangeSetResponse,
     HLCTimestamp,
     PROTOCOL_VERSION
 } from '@entgldb/protocol';
@@ -115,7 +115,7 @@ export class TcpSyncClient {
         );
 
         if (!response.accepted) {
-            throw new Error(`Handshake failed: ${response.errorMessage || 'Unknown error'}`); // Handle optional error message
+            throw new Error('Handshake failed');
         }
 
         if (response.selectedCompression === 'brotli') {
@@ -126,56 +126,19 @@ export class TcpSyncClient {
     /**
      * Pull changes from server
      */
-    async pullChanges(since: HLCTimestamp, batchSize = 100): Promise<SyncResponse> {
-        const request = SyncRequest.create({
-            since, // Assuming type compatibility or transform needed? (Proto vs Core type)
-            // Proto expects int64, int32, string.
-            // Core HLTimestamp might match.
-            // If strict type check fails, mapped object needed.
-            // keeping 'since' as is for now assuming compat.
+    async pullChanges(since: HLCTimestamp, batchSize = 100): Promise<ChangeSetResponse> {
+        const { ProtocolMapper } = require('@entgldb/protocol');
+
+        const request = PullChangesRequest.create({
+            sinceWall: since.logicalTime,
+            sinceLogic: since.counter,
+            sinceNode: since.nodeId
         });
 
-        return this.sendRequest<SyncResponse>(
-            5, // PullChangesReq (Check enum!)
-            // Wait, MessageType enum:
-            // 1 HandshakeReq
-            // 2 HandshakeRes
-            // 3 GetClockReq
-            // 4 ClockRes
-            // 5 PullChangesReq
-            // 6 ChangeSetRes
-            // 7 PushChangesReq
-            // 8 AckRes
-            // 9 SecureEnv
-
-            // Previous code used '2' for SyncRequest (Pull).
-            // This means previous code was based on OLD enum or arbitrary mapping?
-            // "case 2: // Sync request" in tcp-server.ts.
-            // "case 1: // Handshake"
-            // If I updated sync.proto to have formal Enum, I should use it.
-            // But I cannot import Enum before generation.
-            // I will use magic numbers matching v4 proto for now (commented).
-
-            SyncRequest.toBinary(request),
-            (data) => SyncResponse.fromBinary(data)
-            // Note: SyncResponse = ChangeSetResponse in v4?
-            // sync.proto: PullChangesRequest -> ChangeSetResponse.
-            // Old code: SyncRequest -> SyncResponse.
-            // I need to use updated Types if sync.proto changed message names.
-            // I updated sync.proto in Step 3277 but ONLY Handshake fields.
-            // Wait, Step 3274 (view sync.proto) showed "SyncRequest" does NOT exist.
-            // It showed "PullChangesRequest".
-            // BUT `tcp-client.ts` imported `SyncRequest`?
-            // "import { SyncRequest ... } from '@entgldb/protocol'".
-            // If `sync.proto` has `PullChangesRequest`, then generated code should have `PullChangesRequest`.
-            // Why did `tcp-client.ts` have `SyncRequest`?
-            // Maybe `sync.proto` WAS DIFFERENT before I viewed it?
-            // Step 3274 view was Pre-Edit. It had `PullChangesRequest`.
-            // So `tcp-client.ts` was ALREADY broken or using a different proto file?
-            // Or `package.json` pointed to `dist/index.js` which might have exports aliased?
-            // I will assume `PullChangesRequest` is correct name.
-            // I need to update `tcp-client.ts` to use correct names `PullChangesRequest`, `ChangeSetResponse`.
-
+        return this.sendRequest<ChangeSetResponse>(
+            5, // PullChangesReq
+            PullChangesRequest.toBinary(request),
+            (data) => ChangeSetResponse.fromBinary(data)
         );
     }
 
@@ -208,7 +171,7 @@ export class TcpSyncClient {
                 }
             }, 30000);
 
-            this.channel.sendMessage(messageType, payload).catch(reject);
+            this.channel!.sendMessage(messageType, payload).catch(reject);
         });
     }
 }

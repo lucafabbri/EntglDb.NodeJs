@@ -1,5 +1,5 @@
 import { IPeerStore } from '@entgldb/core';
-import { OplogEntry, HLCTimestamp, PushRequest } from '@entgldb/protocol';
+import { OplogEntry, HLCTimestamp, PushChangesRequest, ProtocolMapper } from '@entgldb/protocol';
 import { TcpSyncClient } from '../tcp-client';
 import { PeerInfo } from '../sync-orchestrator';
 
@@ -167,8 +167,8 @@ export class GossipProtocol {
             await client.connect();
 
             // Use push request to send changes
-            const request = PushRequest.create({
-                entries: message.entries
+            const request = PushChangesRequest.create({
+                entries: message.entries.map(e => ProtocolMapper.toProtoOplogEntry(e))
             });
 
             // Send via push (using message type 3)

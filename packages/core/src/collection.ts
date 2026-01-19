@@ -61,13 +61,24 @@ export class PeerCollection<T = any> {
      * Find documents matching a predicate
      * Note: This is a simple client-side filter. For production, implement server-side queries.
      */
-    async find(predicate: (doc: T) => boolean): Promise<T[]> {
-        // This is a naive implementation that loads all docs
-        // In production, implement proper query translation to SQL
-        const results: T[] = [];
+    /**
+     * Find documents matching a query object
+     * @param query The query object (e.g. { name: "Fabio" })
+     * @param options Query options including naming strategy
+     */
+    async find(query: any, options?: { namingStrategy?: (prop: string) => string }): Promise<T[]> {
+        const { ObjectToQueryNodeTranslator } = require('./query/translator');
+        const queryNode = ObjectToQueryNodeTranslator.translate(query, options);
 
-        // We'd need to add a method to IPeerStore to scan a collection
-        // For now, this is a placeholder
-        throw new Error('find() not yet implemented - needs store.scanCollection()');
+        // If no query, return all? or support empty query?
+        // If queryNode is null (empty query), we might want to scan all.
+        // For now let's pass null to store and let it decide (scan all).
+
+        const docs = await this.store.findDocuments(this.name, queryNode);
+
+        return docs.map(doc => {
+            const jsonData = new TextDecoder().decode(doc.data);
+            return JSON.parse(jsonData) as T;
+        });
     }
 }

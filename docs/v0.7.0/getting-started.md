@@ -52,3 +52,8 @@ EntglDb now supports Brotli compression for network synchronization. This is aut
 
 ### Security
 Secure Handshake using ECDH is available.
+
+## Next Steps
+
+- [Querying](querying.html)
+

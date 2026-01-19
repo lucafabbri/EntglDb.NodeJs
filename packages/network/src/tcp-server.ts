@@ -1,14 +1,16 @@
 import * as net from 'net';
 import { IPeerStore, HLClock } from '@entgldb/core';
+
 import {
     HandshakeRequest,
     HandshakeResponse,
-    SyncRequest,
-    SyncResponse,
-    PushRequest,
-    PushResponse,
+    PullChangesRequest,
+    ChangeSetResponse,
+    PushChangesRequest,
+    AckResponse,
     HLCTimestamp,
-    PROTOCOL_VERSION
+    PROTOCOL_VERSION,
+    ProtocolMapper
 } from '@entgldb/protocol';
 import { IPeerHandshakeService, IAuthenticator, CipherState, CryptoHelper } from './security';
 import { SecureChannel } from './secure-channel';
@@ -89,7 +91,7 @@ export class TcpSyncServer {
             try {
                 const cipherState = await this.options.handshakeService.handshake(
                     socket,
-                    false, // isInitiator (server is responder)
+                    false,
                     this.options.nodeId
                 );
                 if (cipherState) {
@@ -109,10 +111,10 @@ export class TcpSyncServer {
             case 1: // HandshakeReq
                 await this.handleHandshake(channel, payload);
                 break;
-            case 5: // PullChangesReq (v4) (was 2 SyncRequest)
+            case 5: // PullChangesReq
                 await this.handleSyncRequest(channel, payload);
                 break;
-            case 7: // PushChangesReq (v4) (was 3 PushRequest)
+            case 7: // PushChangesReq
                 await this.handlePushRequest(channel, payload);
                 break;
             default:
@@ -148,14 +150,7 @@ export class TcpSyncServer {
 
         const response = HandshakeResponse.create({
             accepted,
-            nodeId: this.options.nodeId, // v4 field 'node_id'
-            // protocolVersion: ... // if exists
-            // errorMessage: errorMessage // if exists in v4 proto? 
-            // My v4 update didn't show errorMessage field. 
-            // Older code had it. I should check sync.proto again.
-            // Step 3274: HandshakeResponse { node_id, accepted, selected_compression }. NO error_message.
-            // So I should NOT set errorMessage if it doesn't exist.
-            // Accepted=false alone indicates failure.
+            nodeId: this.options.nodeId
         });
 
         if (accepted && CompressionHelper.isBrotliSupported) {
@@ -175,65 +170,53 @@ export class TcpSyncServer {
     }
 
     private async handleSyncRequest(channel: SecureChannel, payload: Buffer): Promise<void> {
-        const request = SyncRequest.fromBinary(payload);
-        const batchSize = request.batchSize || 100;
+        const request = PullChangesRequest.fromBinary(payload);
 
-        const entries = await this.options.store.getOplogAfter(request.since!, batchSize);
-        // Note: request.since logic might need mapping if types differ
+        // Reconstruct timestamp from flat fields
+        const since = HLCTimestamp.create({
+            logicalTime: request.sinceWall,
+            counter: request.sinceLogic,
+            nodeId: request.sinceNode
+        });
 
-        const latest = await this.options.store.getLatestTimestamp();
+        const entries = await this.options.store.getOplogAfter(since, 100); // Default batch size?
 
-        const response = SyncResponse.create({
-            entries,
-            // latestTimestamp: latest, // Check if v4 has this 
-            // hasMore: ...
+        const response = ChangeSetResponse.create({
+            entries: entries.map(e => ProtocolMapper.toProtoOplogEntry(e))
         });
 
         // 6 = ChangeSetRes
-        await channel.sendMessage(6, SyncResponse.toBinary(response));
+        await channel.sendMessage(6, ChangeSetResponse.toBinary(response));
     }
 
     private async handlePushRequest(channel: SecureChannel, payload: Buffer): Promise<void> {
-        const request = PushRequest.fromBinary(payload);
+        const request = PushChangesRequest.fromBinary(payload);
+
+        // Convert entries to Domain format
+        const domainEntries = request.entries.map(e => ProtocolMapper.toDomainOplogEntry(e));
 
         // Update clock with received timestamps
-        for (const entry of request.entries) {
-            if (entry.hlcWall) {
-                // Mapping Proto HLC to Core HLClock update?
-                // Core HLClock likely takes timestamp object.
-                // Need to map ProtoOplogEntry to Core Entry.
-                // Using existing logic structure:
-                /*
-                if (entry.timestamp) this.clock.update(entry.timestamp);
-                */
+        for (const entry of domainEntries) {
+            if (entry.timestamp) {
+                this.clock.update(entry.timestamp);
             }
         }
 
-        // Convert oplog entries to documents and apply
-        // ... mapping logic ...
-        /*
-        const docs = request.entries.map(entry => ({ ... }));
-        await this.options.store.applyBatch(docs, request.entries);
-        */
-        // Assuming store.applyBatch handles implementation details.
-        // I will keep existing logic but update message IDs.
-
-        /* 
-           Existing code:
-           const docs = request.entries.map(entry => ({
+        const docs = domainEntries.map(entry => ({
             collection: entry.collection,
             key: entry.key,
-            data: entry.data, // v4: json_data?
+            data: entry.data,
             timestamp: entry.timestamp!,
             tombstone: entry.operation === 'delete'
-           }));
-        */
+        }));
 
-        const response = PushResponse.create({
-            success: true // v4 AckResponse?
+        await this.options.store.applyBatch(docs, domainEntries);
+
+        const response = AckResponse.create({
+            success: true
         });
 
         // 8 = AckRes
-        await channel.sendMessage(8, PushResponse.toBinary(response));
+        await channel.sendMessage(8, AckResponse.toBinary(response));
     }
 }
