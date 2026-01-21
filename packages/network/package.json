@@ -1,6 +1,6 @@
 {
     "name": "@entgldb/network",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "P2P networking and synchronization for EntglDb",
     "repository": {
         "type": "git",

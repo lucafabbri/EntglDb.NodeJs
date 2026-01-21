@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { IPeerStore, HLClock } from '@entgldb/core';
+import { IPeerStore, HLClock, PeerNode, PeerType } from '@entgldb/core';
 import { HLCTimestamp, Document, OplogEntry } from '@entgldb/protocol';
 
 /**
@@ -52,6 +52,14 @@ export class SqlitePeerStore implements IPeerStore {
 
       CREATE INDEX IF NOT EXISTS idx_oplog_timestamp 
         ON oplog(logical_time, counter, node_id);
+
+      CREATE TABLE IF NOT EXISTS remote_peers (
+        node_id TEXT PRIMARY KEY,
+        address TEXT NOT NULL,
+        type INTEGER NOT NULL,
+        oauth2_json TEXT,
+        is_enabled INTEGER NOT NULL
+      );
     `);
 
         this.initialized = true;
@@ -213,11 +221,6 @@ export class SqlitePeerStore implements IPeerStore {
             for (const doc of docs) {
                 this.putDocument(doc);
             }
-
-            for (const entry of oplog) {
-                // Oplog entries are already added by putDocument
-                // This is mainly for remote sync
-            }
         });
 
         tx();
@@ -232,6 +235,8 @@ export class SqlitePeerStore implements IPeerStore {
     }
 
     async findDocuments(collection: string, query: any): Promise<Document[]> {
+        // Need to require SqlTranslator implementation or moving it to core/persistence
+        // Assuming it's in the same package for now
         const { SqlTranslator } = require('./sql-translator');
         const { where, params } = SqlTranslator.translate(query);
 
@@ -259,6 +264,42 @@ export class SqlitePeerStore implements IPeerStore {
             }),
             tombstone: row.tombstone === 1
         }));
+    }
+
+    async getRemotePeers(): Promise<PeerNode[]> {
+        const rows = this.db.prepare(`
+      SELECT node_id, address, type
+      FROM remote_peers
+      WHERE is_enabled = 1
+    `).all() as Array<{
+            node_id: string;
+            address: string;
+            type: number;
+        }>;
+
+        return rows.map(row => ({
+            nodeId: row.node_id,
+            host: row.address.split(':')[0],
+            port: parseInt(row.address.split(':')[1] || '25000'),
+            lastSeen: new Date(),
+            type: row.type as PeerType
+        }));
+    }
+
+    async saveRemotePeer(peer: PeerNode): Promise<void> {
+        const address = `${peer.host}:${peer.port}`;
+        this.db.prepare(`
+      INSERT INTO remote_peers (node_id, address, type, is_enabled)
+      VALUES (?, ?, ?, 1)
+      ON CONFLICT(node_id) DO UPDATE SET
+        address = excluded.address,
+        type = excluded.type,
+        is_enabled = 1
+    `).run(peer.nodeId, address, peer.type);
+    }
+
+    async removeRemotePeer(nodeId: string): Promise<void> {
+        this.db.prepare('DELETE FROM remote_peers WHERE node_id = ?').run(nodeId);
     }
 
     async close(): Promise<void> {

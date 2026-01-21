@@ -1,5 +1,5 @@
 import * as net from 'net';
-import { IPeerStore, HLClock } from '@entgldb/core';
+import { IPeerStore, HLClock, IPeerNodeConfigurationProvider } from '@entgldb/core';
 
 import {
     HandshakeRequest,
@@ -26,6 +26,7 @@ export interface TcpSyncServerOptions {
     authToken?: string;
     handshakeService?: IPeerHandshakeService;
     authenticator?: IAuthenticator;
+    configProvider?: IPeerNodeConfigurationProvider;
 }
 
 export class TcpSyncServer {
@@ -36,6 +37,16 @@ export class TcpSyncServer {
 
     constructor(private readonly options: TcpSyncServerOptions) {
         this.clock = new HLClock(options.nodeId);
+
+        if (this.options.configProvider) {
+            this.options.configProvider.onConfigurationChanged(async (config) => {
+                console.log('[EntglDb] Configuration changed, restarting TCP server...');
+                this.stop();
+                this.options.port = config.tcpPort;
+                // If NodeID changed, we might need outside intervention, but for port we restart.
+                this.start();
+            });
+        }
     }
 
     /**
@@ -139,14 +150,6 @@ export class TcpSyncServer {
             accepted = false;
             errorMessage = 'Invalid auth token';
         }
-
-        /*
-        // Check protocol version - Removed in v4? Should still check if field exists
-        // HandshakeRequest definition in v4 removed protocol_version field in my previous thought? 
-        // No, I added fields, didn't check removals.
-        // Assuming protocolVersion is sent/checked if it's there.
-        // If generated code has it, I use it.
-        */
 
         const response = HandshakeResponse.create({
             accepted,

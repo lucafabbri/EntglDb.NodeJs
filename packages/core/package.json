@@ -1,6 +1,6 @@
 {
     "name": "@entgldb/core",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "EntglDb core database engine",
     "repository": {
         "type": "git",

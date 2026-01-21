@@ -1,6 +1,6 @@
 {
     "name": "@entgldb/persistence-sqlite",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "SQLite persistence adapter for EntglDb",
     "repository": {
         "type": "git",

@@ -19,3 +19,8 @@ export type { HLCTimestamp, Document, OplogEntry } from '@entgldb/protocol';
 export * from './query/query-node';
 export * from './query/translator';
 
+
+// Network abstractions
+export * from './network/PeerNode';
+export * from './network/IDiscoveryService';
+export * from './network/PeerNodeConfigurationProvider';
