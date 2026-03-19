@@ -25,7 +25,7 @@ export interface HandshakeRequest {
     /**
      * @generated from protobuf field: repeated string supported_compression = 3
      */
-    supportedCompression: string[];
+    supportedCompression: string[]; // v4
 }
 /**
  * @generated from protobuf message EntglDb.Network.Proto.HandshakeResponse
@@ -42,7 +42,7 @@ export interface HandshakeResponse {
     /**
      * @generated from protobuf field: string selected_compression = 3
      */
-    selectedCompression: string;
+    selectedCompression: string; // v4
 }
 /**
  * @generated from protobuf message EntglDb.Network.Proto.GetClockRequest
@@ -65,6 +65,37 @@ export interface ClockResponse {
      * @generated from protobuf field: string hlc_node = 3
      */
     hlcNode: string;
+}
+/**
+ * @generated from protobuf message EntglDb.Network.Proto.GetVectorClockRequest
+ */
+export interface GetVectorClockRequest {
+}
+/**
+ * @generated from protobuf message EntglDb.Network.Proto.VectorClockResponse
+ */
+export interface VectorClockResponse {
+    /**
+     * @generated from protobuf field: repeated EntglDb.Network.Proto.VectorClockEntry entries = 1
+     */
+    entries: VectorClockEntry[];
+}
+/**
+ * @generated from protobuf message EntglDb.Network.Proto.VectorClockEntry
+ */
+export interface VectorClockEntry {
+    /**
+     * @generated from protobuf field: string node_id = 1
+     */
+    nodeId: string;
+    /**
+     * @generated from protobuf field: int64 hlc_wall = 2
+     */
+    hlcWall: string;
+    /**
+     * @generated from protobuf field: int32 hlc_logic = 3
+     */
+    hlcLogic: number;
 }
 /**
  * @generated from protobuf message EntglDb.Network.Proto.PullChangesRequest
@@ -96,6 +127,28 @@ export interface ChangeSetResponse {
  * @generated from protobuf message EntglDb.Network.Proto.PushChangesRequest
  */
 export interface PushChangesRequest {
+    /**
+     * @generated from protobuf field: repeated EntglDb.Network.Proto.ProtoOplogEntry entries = 1
+     */
+    entries: ProtoOplogEntry[];
+}
+/**
+ * @generated from protobuf message EntglDb.Network.Proto.GetChainRangeRequest
+ */
+export interface GetChainRangeRequest {
+    /**
+     * @generated from protobuf field: string start_hash = 1
+     */
+    startHash: string;
+    /**
+     * @generated from protobuf field: string end_hash = 2
+     */
+    endHash: string;
+}
+/**
+ * @generated from protobuf message EntglDb.Network.Proto.ChainRangeResponse
+ */
+export interface ChainRangeResponse {
     /**
      * @generated from protobuf field: repeated EntglDb.Network.Proto.ProtoOplogEntry entries = 1
      */
@@ -142,6 +195,14 @@ export interface ProtoOplogEntry {
      * @generated from protobuf field: string hlc_node = 7
      */
     hlcNode: string;
+    /**
+     * @generated from protobuf field: string hash = 8
+     */
+    hash: string;
+    /**
+     * @generated from protobuf field: string previous_hash = 9
+     */
+    previousHash: string;
 }
 /**
  * @generated from protobuf message EntglDb.Network.Proto.SecureEnvelope
@@ -205,7 +266,23 @@ export enum MessageType {
     /**
      * @generated from protobuf enum value: SecureEnv = 9;
      */
-    SecureEnv = 9
+    SecureEnv = 9,
+    /**
+     * @generated from protobuf enum value: GetChainRangeReq = 10;
+     */
+    GetChainRangeReq = 10,
+    /**
+     * @generated from protobuf enum value: ChainRangeRes = 11;
+     */
+    ChainRangeRes = 11,
+    /**
+     * @generated from protobuf enum value: GetVectorClockReq = 12;
+     */
+    GetVectorClockReq = 12,
+    /**
+     * @generated from protobuf enum value: VectorClockRes = 13;
+     */
+    VectorClockRes = 13
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class HandshakeRequest$Type extends MessageType$<HandshakeRequest> {
@@ -435,6 +512,154 @@ class ClockResponse$Type extends MessageType$<ClockResponse> {
  */
 export const ClockResponse = new ClockResponse$Type();
 // @generated message type with reflection information, may provide speed optimized methods
+class GetVectorClockRequest$Type extends MessageType$<GetVectorClockRequest> {
+    constructor() {
+        super("EntglDb.Network.Proto.GetVectorClockRequest", []);
+    }
+    create(value?: PartialMessage<GetVectorClockRequest>): GetVectorClockRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<GetVectorClockRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetVectorClockRequest): GetVectorClockRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetVectorClockRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message EntglDb.Network.Proto.GetVectorClockRequest
+ */
+export const GetVectorClockRequest = new GetVectorClockRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class VectorClockResponse$Type extends MessageType$<VectorClockResponse> {
+    constructor() {
+        super("EntglDb.Network.Proto.VectorClockResponse", [
+            { no: 1, name: "entries", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => VectorClockEntry }
+        ]);
+    }
+    create(value?: PartialMessage<VectorClockResponse>): VectorClockResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.entries = [];
+        if (value !== undefined)
+            reflectionMergePartial<VectorClockResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VectorClockResponse): VectorClockResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* repeated EntglDb.Network.Proto.VectorClockEntry entries */ 1:
+                    message.entries.push(VectorClockEntry.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: VectorClockResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* repeated EntglDb.Network.Proto.VectorClockEntry entries = 1; */
+        for (let i = 0; i < message.entries.length; i++)
+            VectorClockEntry.internalBinaryWrite(message.entries[i], writer.tag(1, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message EntglDb.Network.Proto.VectorClockResponse
+ */
+export const VectorClockResponse = new VectorClockResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class VectorClockEntry$Type extends MessageType$<VectorClockEntry> {
+    constructor() {
+        super("EntglDb.Network.Proto.VectorClockEntry", [
+            { no: 1, name: "node_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "hlc_wall", kind: "scalar", T: 3 /*ScalarType.INT64*/ },
+            { no: 3, name: "hlc_logic", kind: "scalar", T: 5 /*ScalarType.INT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<VectorClockEntry>): VectorClockEntry {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.nodeId = "";
+        message.hlcWall = "0";
+        message.hlcLogic = 0;
+        if (value !== undefined)
+            reflectionMergePartial<VectorClockEntry>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VectorClockEntry): VectorClockEntry {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string node_id */ 1:
+                    message.nodeId = reader.string();
+                    break;
+                case /* int64 hlc_wall */ 2:
+                    message.hlcWall = reader.int64().toString();
+                    break;
+                case /* int32 hlc_logic */ 3:
+                    message.hlcLogic = reader.int32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: VectorClockEntry, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string node_id = 1; */
+        if (message.nodeId !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.nodeId);
+        /* int64 hlc_wall = 2; */
+        if (message.hlcWall !== "0")
+            writer.tag(2, WireType.Varint).int64(message.hlcWall);
+        /* int32 hlc_logic = 3; */
+        if (message.hlcLogic !== 0)
+            writer.tag(3, WireType.Varint).int32(message.hlcLogic);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message EntglDb.Network.Proto.VectorClockEntry
+ */
+export const VectorClockEntry = new VectorClockEntry$Type();
+// @generated message type with reflection information, may provide speed optimized methods
 class PullChangesRequest$Type extends MessageType$<PullChangesRequest> {
     constructor() {
         super("EntglDb.Network.Proto.PullChangesRequest", [
@@ -592,6 +817,108 @@ class PushChangesRequest$Type extends MessageType$<PushChangesRequest> {
  */
 export const PushChangesRequest = new PushChangesRequest$Type();
 // @generated message type with reflection information, may provide speed optimized methods
+class GetChainRangeRequest$Type extends MessageType$<GetChainRangeRequest> {
+    constructor() {
+        super("EntglDb.Network.Proto.GetChainRangeRequest", [
+            { no: 1, name: "start_hash", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "end_hash", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<GetChainRangeRequest>): GetChainRangeRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.startHash = "";
+        message.endHash = "";
+        if (value !== undefined)
+            reflectionMergePartial<GetChainRangeRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetChainRangeRequest): GetChainRangeRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string start_hash */ 1:
+                    message.startHash = reader.string();
+                    break;
+                case /* string end_hash */ 2:
+                    message.endHash = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetChainRangeRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string start_hash = 1; */
+        if (message.startHash !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.startHash);
+        /* string end_hash = 2; */
+        if (message.endHash !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.endHash);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message EntglDb.Network.Proto.GetChainRangeRequest
+ */
+export const GetChainRangeRequest = new GetChainRangeRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ChainRangeResponse$Type extends MessageType$<ChainRangeResponse> {
+    constructor() {
+        super("EntglDb.Network.Proto.ChainRangeResponse", [
+            { no: 1, name: "entries", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => ProtoOplogEntry }
+        ]);
+    }
+    create(value?: PartialMessage<ChainRangeResponse>): ChainRangeResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.entries = [];
+        if (value !== undefined)
+            reflectionMergePartial<ChainRangeResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ChainRangeResponse): ChainRangeResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* repeated EntglDb.Network.Proto.ProtoOplogEntry entries */ 1:
+                    message.entries.push(ProtoOplogEntry.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ChainRangeResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* repeated EntglDb.Network.Proto.ProtoOplogEntry entries = 1; */
+        for (let i = 0; i < message.entries.length; i++)
+            ProtoOplogEntry.internalBinaryWrite(message.entries[i], writer.tag(1, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message EntglDb.Network.Proto.ChainRangeResponse
+ */
+export const ChainRangeResponse = new ChainRangeResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
 class AckResponse$Type extends MessageType$<AckResponse> {
     constructor() {
         super("EntglDb.Network.Proto.AckResponse", [
@@ -648,7 +975,9 @@ class ProtoOplogEntry$Type extends MessageType$<ProtoOplogEntry> {
             { no: 4, name: "json_data", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
             { no: 5, name: "hlc_wall", kind: "scalar", T: 3 /*ScalarType.INT64*/ },
             { no: 6, name: "hlc_logic", kind: "scalar", T: 5 /*ScalarType.INT32*/ },
-            { no: 7, name: "hlc_node", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+            { no: 7, name: "hlc_node", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 8, name: "hash", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 9, name: "previous_hash", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
         ]);
     }
     create(value?: PartialMessage<ProtoOplogEntry>): ProtoOplogEntry {
@@ -660,6 +989,8 @@ class ProtoOplogEntry$Type extends MessageType$<ProtoOplogEntry> {
         message.hlcWall = "0";
         message.hlcLogic = 0;
         message.hlcNode = "";
+        message.hash = "";
+        message.previousHash = "";
         if (value !== undefined)
             reflectionMergePartial<ProtoOplogEntry>(this, message, value);
         return message;
@@ -689,6 +1020,12 @@ class ProtoOplogEntry$Type extends MessageType$<ProtoOplogEntry> {
                     break;
                 case /* string hlc_node */ 7:
                     message.hlcNode = reader.string();
+                    break;
+                case /* string hash */ 8:
+                    message.hash = reader.string();
+                    break;
+                case /* string previous_hash */ 9:
+                    message.previousHash = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -723,6 +1060,12 @@ class ProtoOplogEntry$Type extends MessageType$<ProtoOplogEntry> {
         /* string hlc_node = 7; */
         if (message.hlcNode !== "")
             writer.tag(7, WireType.LengthDelimited).string(message.hlcNode);
+        /* string hash = 8; */
+        if (message.hash !== "")
+            writer.tag(8, WireType.LengthDelimited).string(message.hash);
+        /* string previous_hash = 9; */
+        if (message.previousHash !== "")
+            writer.tag(9, WireType.LengthDelimited).string(message.previousHash);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);

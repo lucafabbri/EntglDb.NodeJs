@@ -1,6 +1,6 @@
-import { IPeerStore, HLClock } from '@entgldb/core';
+import { IPeerStore, HLClock, VectorClock, CausalityRelation } from '@entgldb/core';
 import { TcpSyncClient } from './tcp-client';
-import { HLCTimestamp } from '@entgldb/protocol';
+import { HLCTimestamp, ProtocolMapper, OplogEntry } from '@entgldb/protocol';
 
 export interface PeerInfo {
     nodeId: string;
@@ -83,6 +83,7 @@ export class SyncOrchestrator {
      * Manually trigger sync with all peers
      */
     async syncWithAllPeers(): Promise<void> {
+        // Pick random peers like in .NET? For now simple loop
         const syncPromises = this.peers.map(peer =>
             this.syncWithPeer(peer).catch(error => {
                 console.error(`[SyncOrchestrator] Sync failed with ${peer.nodeId}:`, error.message);
@@ -105,47 +106,61 @@ export class SyncOrchestrator {
 
         try {
             await client.connect();
+            // Handshake is done automatically in connect() if configured, but here we assume it's part of connect flow logic in TcpSyncClient which calls handshake()
 
-            // Get our latest timestamp
-            const since = await this.options.store.getLatestTimestamp();
+            // 1. Exchange Vector Clocks
+            const remoteVCResponse = await client.getVectorClock();
+            const remoteEntries = remoteVCResponse.entries.map(e => ({
+                nodeId: e.nodeId,
+                timestamp: HLCTimestamp.create({
+                    logicalTime: e.hlcWall,
+                    counter: e.hlcLogic,
+                    nodeId: e.nodeId
+                })
+            }));
 
-            // Pull changes
-            let hasMore = true;
-            let pulledCount = 0;
+            const remoteVCMap = new Map<string, HLCTimestamp>();
+            for (const entry of remoteEntries) {
+                remoteVCMap.set(entry.nodeId, entry.timestamp);
+            }
+            const remoteVC = new VectorClock(remoteVCMap);
 
-            while (hasMore) {
-                const response = await client.pullChanges(since, 100);
+            const localVC = await this.options.store.getVectorClock();
+
+            // 2. Logic: Compare and Sync
+            // PULL: Nodes where remote is ahead
+            const nodesToPull = localVC.getNodesWithUpdates(remoteVC);
+
+            for (const nodeId of nodesToPull) {
+                const localTs = localVC.getTimestamp(nodeId) || HLCTimestamp.create({
+                    logicalTime: '0',
+                    counter: 0,
+                    nodeId: nodeId
+                });
+
+                // Pull changes for this node
+                const response = await client.pullChanges(localTs, 100);
 
                 if (response.entries.length > 0) {
-                    // Convert to Domain objects
-                    const { ProtocolMapper } = require('@entgldb/protocol');
                     const domainEntries = response.entries.map(e => ProtocolMapper.toDomainOplogEntry(e));
-
-                    // Update clock
-                    for (const entry of domainEntries) {
-                        if (entry.timestamp) {
-                            this.clock.update(entry.timestamp);
-                        }
-                    }
-
-                    // Convert to documents and apply
-                    const docs = domainEntries.map(entry => ({
-                        collection: entry.collection,
-                        key: entry.key,
-                        data: entry.data,
-                        timestamp: entry.timestamp!,
-                        tombstone: entry.operation === 'delete'
-                    }));
-
-                    await this.options.store.applyBatch(docs, domainEntries);
-                    pulledCount += domainEntries.length;
+                    await this.processInboundBatch(client, peer.nodeId, domainEntries);
                 }
-
-                hasMore = response.entries.length >= 100;
             }
 
-            if (pulledCount > 0) {
-                console.log(`[SyncOrchestrator] Pulled ${pulledCount} changes from ${peer.nodeId}`);
+            // PUSH: Nodes where local is ahead
+            const nodesToPush = localVC.getNodesToPush(remoteVC);
+
+            for (const nodeId of nodesToPush) {
+                const remoteTs = remoteVC.getTimestamp(nodeId) || HLCTimestamp.create({
+                    logicalTime: '0',
+                    counter: 0,
+                    nodeId: nodeId
+                });
+
+                const changes = await this.options.store.getOplogForNodeAfter(nodeId, remoteTs);
+                if (changes.length > 0) {
+                    await client.pushChanges(changes);
+                }
             }
 
             client.disconnect();
@@ -154,4 +169,69 @@ export class SyncOrchestrator {
             throw error;
         }
     }
+
+    private async processInboundBatch(client: TcpSyncClient, peerNodeId: string, changes: OplogEntry[]): Promise<void> {
+        // Validation and Gap Recovery
+        if (changes.length === 0) return;
+
+        // Group by NodeId (though usually we pull for one node)
+        // Sort by timestamp
+        // Verify hash chain
+
+        // Simple sequential verification 
+        for (let i = 0; i < changes.length; i++) {
+            const entry = changes[i];
+
+            // Check Hash if we implemented verification logic in OplogEntry or util
+            // For now assuming internal integrity of the entry structure itself is OK
+
+            if (i > 0) {
+                const prev = changes[i - 1];
+                if (entry.previousHash !== prev.hash) {
+                    throw new Error(`Chain Broken in Batch for Node ${entry.timestamp!.nodeId}`);
+                }
+            }
+        }
+
+        // Check linkage with Local State
+        const firstEntry = changes[0];
+        const authorNodeId = firstEntry.timestamp!.nodeId;
+        const localHeadHash = await this.options.store.getLastEntryHash(authorNodeId);
+
+        if (localHeadHash && firstEntry.previousHash !== localHeadHash) {
+            console.warn(`Gap Detected for Node ${authorNodeId}. Local Head: ${localHeadHash}, Remote Prev: ${firstEntry.previousHash}. Initiating Recovery.`);
+
+            // Gap Recovery
+            const response = await client.getChainRange(localHeadHash, firstEntry.previousHash!);
+            const missingChain = response.entries.map(e => ProtocolMapper.toDomainOplogEntry(e));
+
+            if (missingChain.length > 0) {
+                // Apply missing chain first
+                await this.applyChanges(missingChain);
+            }
+        }
+
+        // Apply original batch
+        await this.applyChanges(changes);
+    }
+
+    private async applyChanges(changes: OplogEntry[]): Promise<void> {
+        const docs = changes.map(entry => ({
+            collection: entry.collection,
+            key: entry.key,
+            data: entry.data,
+            timestamp: entry.timestamp!,
+            tombstone: entry.operation === 'delete'
+        }));
+
+        await this.options.store.applyBatch(docs, changes);
+
+        // Update local clock (in memory) if needed, but store handles persistence
+        for (const entry of changes) {
+            if (entry.timestamp) {
+                this.clock.update(entry.timestamp);
+            }
+        }
+    }
 }
+

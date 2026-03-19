@@ -32,9 +32,29 @@ export interface IPeerStore {
     deleteDocument(collection: string, key: string, timestamp: HLCTimestamp): Promise<void>;
 
     /**
+     * Get the current Vector Clock from the store
+     */
+    getVectorClock(): Promise<import('../hlc/vector-clock').VectorClock>;
+
+    /**
      * Get oplog entries after a given timestamp
      */
     getOplogAfter(timestamp: HLCTimestamp, limit?: number): Promise<OplogEntry[]>;
+
+    /**
+     * Get oplog entries for a specific node after a given timestamp
+     */
+    getOplogForNodeAfter(nodeId: string, timestamp: HLCTimestamp): Promise<OplogEntry[]>;
+
+    /**
+     * Get the hash of the last entry for a specific node
+     */
+    getLastEntryHash(nodeId: string): Promise<string | null>;
+
+    /**
+     * Get a range of oplog entries between two hashes (inclusive end)
+     */
+    getChainRange(startHash: string, endHash: string): Promise<OplogEntry[]>;
 
     /**
      * Apply a batch of documents and oplog entries (for sync)

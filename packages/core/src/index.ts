@@ -10,6 +10,8 @@ export { IPeerStore } from './storage/interface';
 
 // Sync and conflict resolution
 export * from './sync';
+export * from './hlc/vector-clock';
+export * from './crypto/hash';
 
 // Re-export protocol types for convenience
 // Re-export protocol types for convenience

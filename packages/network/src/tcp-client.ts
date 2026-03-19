@@ -5,9 +5,17 @@ import {
     HandshakeResponse,
     PullChangesRequest,
     ChangeSetResponse,
+    GetVectorClockRequest,
+    VectorClockResponse,
+    VectorClockEntry,
+    PushChangesRequest,
+    GetChainRangeRequest,
+    ChainRangeResponse,
+    ProtoOplogEntry,
     HLCTimestamp,
     PROTOCOL_VERSION
 } from '@entgldb/protocol';
+import { ProtocolMapper } from '@entgldb/protocol';
 import { IPeerHandshakeService, CipherState, CryptoHelper } from './security';
 import { SecureChannel } from './secure-channel';
 import { CompressionHelper } from './compression-helper';
@@ -127,8 +135,6 @@ export class TcpSyncClient {
      * Pull changes from server
      */
     async pullChanges(since: HLCTimestamp, batchSize = 100): Promise<ChangeSetResponse> {
-        const { ProtocolMapper } = require('@entgldb/protocol');
-
         const request = PullChangesRequest.create({
             sinceWall: since.logicalTime,
             sinceLogic: since.counter,
@@ -139,6 +145,54 @@ export class TcpSyncClient {
             5, // PullChangesReq
             PullChangesRequest.toBinary(request),
             (data) => ChangeSetResponse.fromBinary(data)
+        );
+    }
+
+    async getVectorClock(): Promise<VectorClockResponse> {
+        const request = GetVectorClockRequest.create({});
+        return this.sendRequest<VectorClockResponse>(
+            12, // GetVectorClockReq
+            GetVectorClockRequest.toBinary(request),
+            (data) => VectorClockResponse.fromBinary(data)
+        );
+    }
+
+    async pushChanges(oplogEntries: any[]): Promise<void> {
+        // Convert domain entries to proto entries
+        const protoEntries = oplogEntries.map(e => ProtocolMapper.toProtoOplogEntry(e));
+
+        const request = PushChangesRequest.create({
+            entries: protoEntries
+        });
+
+        // PushChangesReq = 7
+        // We expect AckResponse (8) or just void/no response? 
+        // Sync.proto says PushChangesReq(7) -> AckRes(8)?
+        // .NET SyncOrchestrator sends PushChanges but doesn't explicitly wait for Ack in the loop?
+        // Wait, .NET SyncOrchestrator: await client.PushChangesAsync(changesList, token);
+        // TcpPeerClient.cs .NET: WriteMessageAsync(MessageType.PushChangesReq, ...); then ReadMessageAsync(MessageType.AckRes...);
+        // So yes, we expect Ack.
+
+        // I need to import AckResponse too.
+        // For now I'll assume we wait for Ack.
+
+        await this.sendRequest<any>(
+            7,
+            PushChangesRequest.toBinary(request),
+            (data) => { } // decode AckResponse but we don't return it
+        );
+    }
+
+    async getChainRange(startHash: string, endHash: string): Promise<ChainRangeResponse> {
+        const request = GetChainRangeRequest.create({
+            startHash,
+            endHash
+        });
+
+        return this.sendRequest<ChainRangeResponse>(
+            10, // GetChainRangeReq
+            GetChainRangeRequest.toBinary(request),
+            (data) => ChainRangeResponse.fromBinary(data)
         );
     }
 

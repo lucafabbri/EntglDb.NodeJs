@@ -11,7 +11,9 @@ export class ProtocolMapper {
             jsonData: new TextDecoder().decode(entry.data),
             hlcWall: entry.timestamp?.logicalTime || '0',
             hlcLogic: entry.timestamp?.counter || 0,
-            hlcNode: entry.timestamp?.nodeId || ''
+            hlcNode: entry.timestamp?.nodeId || '',
+            hash: entry.hash || '',
+            previousHash: entry.previousHash || ''
         });
     }
 
@@ -25,7 +27,9 @@ export class ProtocolMapper {
                 logicalTime: proto.hlcWall,
                 counter: proto.hlcLogic,
                 nodeId: proto.hlcNode
-            })
+            }),
+            hash: proto.hash,
+            previousHash: proto.previousHash
         });
     }
 }

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { IPeerStore, HLClock, PeerNode, PeerType } from '@entgldb/core';
+import { IPeerStore, HLClock, PeerNode, PeerType, VectorClock, computeOplogHash } from '@entgldb/core';
 import { HLCTimestamp, Document, OplogEntry } from '@entgldb/protocol';
 
 /**
@@ -47,7 +47,9 @@ export class SqlitePeerStore implements IPeerStore {
         timestamp TEXT NOT NULL,
         logical_time TEXT NOT NULL,
         counter INTEGER NOT NULL,
-        node_id TEXT NOT NULL
+        node_id TEXT NOT NULL,
+        hash TEXT,
+        previous_hash TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_oplog_timestamp 
@@ -65,13 +67,32 @@ export class SqlitePeerStore implements IPeerStore {
         this.initialized = true;
     }
 
+    async getVectorClock(): Promise<VectorClock> {
+        const rows = this.db.prepare(`
+            SELECT node_id, MAX(logical_time) as max_logic, MAX(counter) as max_counter
+            FROM oplog
+            GROUP BY node_id
+        `).all() as Array<{ node_id: string, max_logic: string, max_counter: number }>;
+
+        const vc = new VectorClock();
+        for (const row of rows) {
+            vc.setTimestamp(row.node_id, HLCTimestamp.create({
+                logicalTime: row.max_logic,
+                counter: row.max_counter,
+                nodeId: row.node_id
+            }));
+        }
+        return vc;
+    }
+
     async getLatestTimestamp(): Promise<HLCTimestamp> {
+        // Use oplog for latest timestamp source of truth as it reflects all ops
         const row = this.db.prepare(`
-      SELECT logical_time, counter, node_id 
-      FROM documents 
-      ORDER BY logical_time DESC, counter DESC 
-      LIMIT 1
-    `).get() as { logical_time: string; counter: number; node_id: string } | undefined;
+            SELECT logical_time, counter, node_id 
+            FROM oplog 
+            ORDER BY logical_time DESC, counter DESC, node_id DESC
+            LIMIT 1
+        `).get() as { logical_time: string; counter: number; node_id: string } | undefined;
 
         if (!row) {
             return HLCTimestamp.create({
@@ -145,10 +166,30 @@ export class SqlitePeerStore implements IPeerStore {
         INSERT OR IGNORE INTO collections (name) VALUES (?)
       `).run(doc.collection);
 
+            // Get previous hash for local node
+            const localNodeId = doc.timestamp!.nodeId;
+            const lastEntry = this.db.prepare(`
+                SELECT hash FROM oplog WHERE node_id = ? ORDER BY id DESC LIMIT 1
+            `).get(localNodeId) as { hash: string } | undefined;
+            const prevHash = lastEntry ? lastEntry.hash : '';
+
+            // create oplog entry object to compute hash
+            const opEntry = OplogEntry.create({
+                collection: doc.collection,
+                key: doc.key,
+                data: doc.data ? Buffer.from(doc.data) : undefined,
+                operation: doc.tombstone ? 'delete' : 'put',
+                timestamp: doc.timestamp,
+                previousHash: prevHash
+            });
+
+            // Compute Hash
+            const hash = computeOplogHash(opEntry);
+
             // Add to oplog
             this.db.prepare(`
-        INSERT INTO oplog (collection, key, data, operation, timestamp, logical_time, counter, node_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO oplog (collection, key, data, operation, timestamp, logical_time, counter, node_id, hash, previous_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
                 doc.collection,
                 doc.key,
@@ -157,7 +198,9 @@ export class SqlitePeerStore implements IPeerStore {
                 HLClock.toString(doc.timestamp!),
                 doc.timestamp!.logicalTime,
                 doc.timestamp!.counter,
-                doc.timestamp!.nodeId
+                doc.timestamp!.nodeId,
+                hash,
+                prevHash
             );
         });
 
@@ -178,20 +221,16 @@ export class SqlitePeerStore implements IPeerStore {
 
     async getOplogAfter(timestamp: HLCTimestamp, limit = 100): Promise<OplogEntry[]> {
         const rows = this.db.prepare(`
-      SELECT collection, key, data, operation, logical_time, counter, node_id
+      SELECT collection, key, data, operation, logical_time, counter, node_id, hash, previous_hash
       FROM oplog
       WHERE (logical_time > ?) 
          OR (logical_time = ? AND counter > ?)
-         OR (logical_time = ? AND counter = ? AND node_id > ?)
       ORDER BY logical_time, counter, node_id
       LIMIT ?
     `).all(
             timestamp.logicalTime,
             timestamp.logicalTime,
             timestamp.counter,
-            timestamp.logicalTime,
-            timestamp.counter,
-            timestamp.nodeId,
             limit
         ) as Array<{
             collection: string;
@@ -201,8 +240,58 @@ export class SqlitePeerStore implements IPeerStore {
             logical_time: string;
             counter: number;
             node_id: string;
+            hash: string;
+            previous_hash: string;
         }>;
 
+        return this.mapRowsToEntries(rows);
+    }
+
+    async getOplogForNodeAfter(nodeId: string, timestamp: HLCTimestamp): Promise<OplogEntry[]> {
+        const rows = this.db.prepare(`
+            SELECT collection, key, data, operation, logical_time, counter, node_id, hash, previous_hash
+            FROM oplog
+            WHERE node_id = ?
+              AND ((logical_time > ?) OR (logical_time = ? AND counter > ?))
+            ORDER BY logical_time, counter
+        `).all(
+            nodeId,
+            timestamp.logicalTime,
+            timestamp.logicalTime,
+            timestamp.counter
+        ) as Array<any>;
+
+        return this.mapRowsToEntries(rows);
+    }
+
+    async getLastEntryHash(nodeId: string): Promise<string | null> {
+        const row = this.db.prepare(`
+            SELECT hash FROM oplog WHERE node_id = ? ORDER BY logical_time DESC, counter DESC LIMIT 1
+        `).get(nodeId) as { hash: string } | undefined;
+        return row ? row.hash : null;
+    }
+
+    async getChainRange(startHash: string, endHash: string): Promise<OplogEntry[]> {
+        // This requires finding the range between two hashes.
+        // Simplified: Fetch IDs of start and end hash
+        const startRow = this.db.prepare('SELECT id, node_id FROM oplog WHERE hash = ?').get(startHash) as { id: number, node_id: string } | undefined;
+        const endRow = this.db.prepare('SELECT id, node_id FROM oplog WHERE hash = ?').get(endHash) as { id: number, node_id: string } | undefined;
+
+        if (!startRow || !endRow || startRow.node_id !== endRow.node_id || startRow.id >= endRow.id) {
+            return [];
+        }
+
+        const rows = this.db.prepare(`
+            SELECT collection, key, data, operation, logical_time, counter, node_id, hash, previous_hash
+            FROM oplog
+            WHERE node_id = ? AND id > ? AND id <= ?
+            ORDER BY id
+        `).all(startRow.node_id, startRow.id, endRow.id) as Array<any>;
+
+        return this.mapRowsToEntries(rows);
+    }
+
+    private mapRowsToEntries(rows: Array<any>): OplogEntry[] {
         return rows.map(row => OplogEntry.create({
             collection: row.collection,
             key: row.key,
@@ -212,14 +301,56 @@ export class SqlitePeerStore implements IPeerStore {
                 counter: row.counter,
                 nodeId: row.node_id
             }),
-            operation: row.operation
+            operation: row.operation,
+            hash: row.hash || '',
+            previousHash: row.previous_hash || ''
         }));
     }
 
     async applyBatch(docs: Document[], oplog: OplogEntry[]): Promise<void> {
         const tx = this.db.transaction(() => {
+            // Apply documents
             for (const doc of docs) {
-                this.putDocument(doc);
+                // Upsert doc directly (bypass PutDocument to avoid re-oplogging)
+                this.db.prepare(`
+                    INSERT INTO documents (collection, key, data, timestamp, logical_time, counter, node_id, tombstone)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(collection, key) DO UPDATE SET
+                    data = excluded.data,
+                    timestamp = excluded.timestamp,
+                    logical_time = excluded.logical_time,
+                    counter = excluded.counter,
+                    node_id = excluded.node_id,
+                    tombstone = excluded.tombstone
+                `).run(
+                    doc.collection,
+                    doc.key,
+                    Buffer.from(doc.data),
+                    HLClock.toString(doc.timestamp!),
+                    doc.timestamp!.logicalTime,
+                    doc.timestamp!.counter,
+                    doc.timestamp!.nodeId,
+                    doc.tombstone ? 1 : 0
+                );
+            }
+
+            // Apply oplog
+            for (const entry of oplog) {
+                this.db.prepare(`
+                    INSERT OR IGNORE INTO oplog (collection, key, data, operation, timestamp, logical_time, counter, node_id, hash, previous_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    entry.collection,
+                    entry.key,
+                    entry.data ? Buffer.from(entry.data) : null,
+                    entry.operation,
+                    entry.timestamp ? HLClock.toString(entry.timestamp) : '',
+                    entry.timestamp?.logicalTime || '0',
+                    entry.timestamp?.counter || 0,
+                    entry.timestamp?.nodeId || '',
+                    entry.hash,
+                    entry.previousHash
+                );
             }
         });
 

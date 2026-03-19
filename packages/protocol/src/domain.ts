@@ -41,6 +41,8 @@ export interface OplogEntry {
     data: Uint8Array;
     timestamp?: HLCTimestamp;
     operation: string;
+    hash?: string;
+    previousHash?: string;
 }
 
 export const OplogEntry = {
@@ -50,7 +52,9 @@ export const OplogEntry = {
             key: vals.key || '',
             data: vals.data || new Uint8Array(0),
             timestamp: vals.timestamp,
-            operation: vals.operation || ''
+            operation: vals.operation || '',
+            hash: vals.hash,
+            previousHash: vals.previousHash
         };
     }
 };
